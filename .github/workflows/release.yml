@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.x
+
+      - name: Ensure Inno Setup is available
+        run: |
+          $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") |
+            Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc -and -not (Get-Command ISCC.exe -ErrorAction SilentlyContinue)) {
+            Write-Host 'ISCC.exe not found; installing Inno Setup with Chocolatey.'
+            choco install innosetup -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "choco install innosetup failed ($LASTEXITCODE)." }
+          }
+
+      - name: Determine version from tag
+        id: version
+        run: |
+          $version = $env:GITHUB_REF_NAME -replace '^v', ''
+          if ($version -notmatch '^\d+\.\d+\.\d+(\.\d+)?([-+][0-9A-Za-z.+-]+)?$') {
+            throw "Tag '$env:GITHUB_REF_NAME' is not a valid version tag (expected v1.2.3 or v1.2.3-beta.1)."
+          }
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Releasing version $version"
+
+      - name: Build, test, publish and compile installer
+        id: build
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: ./build.ps1 -Configuration Release -Version $env:VERSION
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.version }}
+          INSTALLER: ${{ steps.build.outputs.installer }}
+          CHECKSUM: ${{ steps.build.outputs.checksum }}
+        run: |
+          $releaseArgs = @(
+            'release', 'create', $env:TAG, $env:INSTALLER, $env:CHECKSUM,
+            '--repo', $env:GITHUB_REPOSITORY,
+            '--title', "JustMdViewer $env:VERSION",
+            '--generate-notes',
+            '--verify-tag'
+          )
+          if ($env:VERSION -like '*-*') { $releaseArgs += '--prerelease' }
+          gh @releaseArgs
+          if ($LASTEXITCODE -ne 0) { throw "gh release create failed ($LASTEXITCODE)." }
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: JustMdViewer-Setup-${{ steps.version.outputs.version }}
+          path: |
+            artifacts/installer/*.exe
+            artifacts/installer/*.sha256
+          if-no-files-found: error

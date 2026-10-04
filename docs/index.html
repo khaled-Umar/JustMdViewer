@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JustMdViewer: a Markdown viewer for Windows that only views</title>
+<meta name="description" content="JustMdViewer is a small, free, open-source Markdown viewer for Windows 10 and 11. Tabs, GitHub-style rendering, safe links, light and dark themes, auto-reload. No editor, no telemetry.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#F4F7FC" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0A1020" media="(prefers-color-scheme: dark)">
+<meta property="og:title" content="JustMdViewer">
+<meta property="og:description" content="A Markdown viewer for Windows that only views.">
+<meta property="og:type" content="website">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon.ico" sizes="16x16 32x32 48x48">
+<script>
+  // Apply the saved theme before first paint. "system" (or nothing saved) follows the OS.
+  (function () {
+    try {
+      var t = localStorage.getItem('jmv-theme');
+      if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+    } catch (e) {}
+  })();
+</script>
+<style>
+  /* ------------------------------------------------------------------
+     Tokens
+     ------------------------------------------------------------------ */
+  :root {
+    --paper: #F4F7FC;
+    --sheet: #FFFFFF;
+    --ink: #0E1726;
+    --graphite: #4B5768;
+    --rule: #D9E1EE;
+    --accent: #2563EB;
+    --accent-soft: #E4ECFD;
+    --accent-ink: #FFFFFF;
+    --code-bg: #F3F6FB;
+    --shadow: 0 1px 2px rgb(14 23 38 / 6%), 0 18px 48px -12px rgb(30 58 138 / 22%);
+    --tok-key: #7C3AED;
+    --tok-str: #0F766E;
+    --tok-flag: #B45309;
+    --tok-com: #6B7A90;
+
+    --display: "Segoe UI Variable Display", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    --text: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    --mono: "Cascadia Code", "Cascadia Mono", Consolas, ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+    --gutter: 5rem;
+    --maxw: 72rem;
+    color-scheme: light;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #0A1020;
+      --sheet: #111A2E;
+      --ink: #E6ECF5;
+      --graphite: #9BA8BD;
+      --rule: #22304A;
+      --accent: #60A5FA;
+      --accent-soft: #15264A;
+      --accent-ink: #0A1020;
+      --code-bg: #0C1426;
+      --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 24px 60px -16px rgb(0 0 0 / 70%);
+      --tok-key: #C4B5FD;
+      --tok-str: #5EEAD4;
+      --tok-flag: #FCD34D;
+      --tok-com: #7D8BA3;
+      color-scheme: dark;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper: #0A1020;
+    --sheet: #111A2E;
+    --ink: #E6ECF5;
+    --graphite: #9BA8BD;
+    --rule: #22304A;
+    --accent: #60A5FA;
+    --accent-soft: #15264A;
+    --accent-ink: #0A1020;
+    --code-bg: #0C1426;
+    --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 24px 60px -16px rgb(0 0 0 / 70%);
+    --tok-key: #C4B5FD;
+    --tok-str: #5EEAD4;
+    --tok-flag: #FCD34D;
+    --tok-com: #7D8BA3;
+    color-scheme: dark;
+  }
+
+  /* ------------------------------------------------------------------
+     Base
+     ------------------------------------------------------------------ */
+  *, *::before, *::after { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 400 1.0625rem/1.6 var(--text);
+    font-optical-sizing: auto;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-underline-offset: 0.18em; }
+  a:hover { text-decoration-thickness: 2px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+  code, kbd, .mono { font-family: var(--mono); font-size: 0.88em; }
+  img, svg { display: block; }
+  .sprite { position: absolute; }
+
+  .skip {
+    position: absolute; left: 1rem; top: -3rem;
+    background: var(--accent); color: var(--accent-ink);
+    padding: 0.5rem 0.9rem; border-radius: 6px; text-decoration: none; z-index: 10;
+  }
+  .skip:focus { top: 1rem; }
+
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 1.5rem; }
+
+  /* ------------------------------------------------------------------
+     Top bar
+     ------------------------------------------------------------------ */
+  .topbar { padding: 1.1rem 0; }
+  .topbar .wrap { display: flex; align-items: center; gap: 1.5rem; }
+  .brand {
+    display: inline-flex; align-items: center; gap: 0.6rem;
+    color: var(--ink); text-decoration: none;
+    font: 650 1.125rem/1 var(--display); letter-spacing: -0.01em;
+  }
+  .brand svg { width: 30px; height: 30px; }
+  .brand b { color: var(--accent); font-weight: inherit; }
+  .topnav { display: flex; gap: 1.4rem; margin-left: auto; }
+  .topnav a { color: var(--graphite); text-decoration: none; font-size: 0.95rem; }
+  .topnav a:hover { color: var(--ink); }
+
+  .theme-switch {
+    display: inline-flex; padding: 3px; gap: 2px;
+    border: 1px solid var(--rule); border-radius: 999px; background: var(--sheet);
+  }
+  .theme-switch button {
+    appearance: none; border: 0; background: transparent; color: var(--graphite);
+    font: 500 0.8rem/1 var(--text); padding: 0.42rem 0.7rem; border-radius: 999px; cursor: pointer;
+  }
+  .theme-switch button:hover { color: var(--ink); }
+  .theme-switch button[aria-pressed="true"] { background: var(--accent-soft); color: var(--ink); }
+
+  /* ------------------------------------------------------------------
+     The page reads like a rendered Markdown file: every heading keeps
+     its source marker (#, ##, ###) hanging in a left gutter, behind an
+     editor-style gutter rule.
+     ------------------------------------------------------------------ */
+  .doc { position: relative; padding-left: var(--gutter); }
+  .doc::before {
+    content: ""; position: absolute; top: 0; bottom: 0;
+    left: calc(var(--gutter) - 1.6rem);
+    border-left: 1px dashed var(--rule);
+  }
+  .src {
+    position: absolute; right: calc(100% + 2.4rem); top: 0;
+    font: 500 0.5em/inherit var(--mono); letter-spacing: 0.04em;
+    color: var(--accent); opacity: 0.75; white-space: nowrap;
+    line-height: inherit; user-select: none;
+  }
+  .doc h1, .doc h2, .doc h3 { position: relative; }
+
+  /* ------------------------------------------------------------------
+     Hero
+     ------------------------------------------------------------------ */
+  .hero { padding-block: clamp(3rem, 8vw, 6.5rem) 2.5rem; }
+  .hero h1 {
+    margin: 0;
+    font: 650 clamp(2.6rem, 6.6vw, 5rem)/1.02 var(--display);
+    letter-spacing: -0.035em;
+    max-width: 14ch;
+    text-wrap: balance;
+  }
+  .hero h1 .src { font-size: 0.42em; top: 0.42em; }
+  .hero h1 em { font-style: normal; color: var(--accent); }
+  .pitch {
+    margin: 1.5rem 0 0; max-width: 38rem;
+    font-size: clamp(1.08rem, 1.6vw, 1.25rem); color: var(--graphite);
+  }
+  .actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 2rem; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 0.55rem;
+    padding: 0.85rem 1.3rem; border-radius: 10px;
+    font: 600 1rem/1 var(--text); text-decoration: none;
+    border: 1px solid transparent;
+    transition: transform 0.15s ease, background-color 0.15s ease;
+  }
+  .btn:hover { transform: translateY(-1px); text-decoration: none; }
+  .btn svg { width: 18px; height: 18px; flex: none; }
+  .btn-primary { background: var(--accent); color: var(--accent-ink); }
+  .btn-primary:hover { background: color-mix(in srgb, var(--accent) 88%, var(--ink)); }
+  .btn-quiet { background: var(--sheet); color: var(--ink); border-color: var(--rule); }
+  .btn-quiet:hover { border-color: var(--graphite); }
+  .meta {
+    margin: 1.1rem 0 0; color: var(--graphite);
+    font: 400 0.82rem/1.5 var(--mono);
+  }
+  .meta span + span::before { content: "·"; margin: 0 0.55em; opacity: 0.6; }
+
+  /* ------------------------------------------------------------------
+     App window mock
+     ------------------------------------------------------------------ */
+  .showcase { margin: 1.5rem 0 0; }
+  .window {
+    background: var(--sheet);
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    font-family: var(--text);
+    animation: rise 0.7s cubic-bezier(.2,.7,.2,1) both 0.1s;
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+
+  .w-title {
+    display: flex; align-items: center; gap: 0.6rem;
+    height: 38px; padding-left: 0.85rem;
+    font-size: 0.78rem; color: var(--graphite);
+    border-bottom: 1px solid var(--rule);
+  }
+  .w-title svg { width: 16px; height: 16px; }
+  .w-title .caption { margin-left: auto; display: flex; height: 100%; }
+  .w-title .caption i {
+    width: 46px; display: grid; place-items: center; font-style: normal;
+  }
+  .w-title .caption i svg { width: 10px; height: 10px; stroke: currentColor; fill: none; stroke-width: 1; }
+
+  .w-bar {
+    display: flex; align-items: center; gap: 0.35rem;
+    padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--rule);
+    font-size: 0.8rem; color: var(--ink); min-width: 0;
+  }
+  .w-bar .ib {
+    width: 30px; height: 30px; flex: none; border-radius: 6px;
+    display: grid; place-items: center; color: var(--graphite);
+  }
+  .w-bar .ib svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  .w-bar .ib.on { background: var(--accent-soft); color: var(--ink); }
+  .w-bar .push { margin-left: auto; }
+  .w-tabs { display: flex; gap: 0.25rem; min-width: 0; overflow: hidden; }
+  .w-tab {
+    display: inline-flex; align-items: center; gap: 0.5rem; min-width: 0;
+    padding: 0.38rem 0.45rem 0.38rem 0.75rem; border-radius: 7px;
+    color: var(--graphite); white-space: nowrap;
+  }
+  .w-tab span { overflow: hidden; text-overflow: ellipsis; }
+  .w-tab i { font-style: normal; opacity: 0.55; font-size: 0.85rem; line-height: 1; padding: 0 0.15rem; }
+  .w-tab.on { background: var(--accent-soft); color: var(--ink); box-shadow: inset 0 -2px 0 var(--accent); }
+
+  .w-body { display: grid; grid-template-columns: 13.5rem minmax(0, 1fr); min-height: 30rem; }
+  .w-outline {
+    border-right: 1px solid var(--rule); padding: 1.1rem 0.6rem;
+    font-size: 0.8rem; color: var(--graphite);
+  }
+  .w-outline p { margin: 0 0 0.6rem 0.6rem; font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; }
+  .w-outline ul { list-style: none; margin: 0; padding: 0; }
+  .w-outline ul ul { padding-left: 0.95rem; }
+  .w-outline li > span { display: flex; align-items: center; gap: 0.3rem; padding: 0.3rem 0.5rem; border-radius: 6px; }
+  .w-outline li > span::before { content: ""; width: 0.8rem; flex: none; text-align: center; font-size: 0.85rem; line-height: 1; }
+  .w-outline li.open > span::before { content: "▾"; }
+  .w-outline li.shut > span::before { content: "▸"; }
+  .w-outline li.on > span { background: var(--accent-soft); color: var(--ink); }
+
+  /* Rendered Markdown inside the mock: GitHub-like */
+  .md { padding: 1.8rem clamp(1.2rem, 4vw, 3rem) 2.2rem; font-size: 0.92rem; line-height: 1.6; color: var(--ink); max-width: 52rem; }
+  .md h1, .md h2 { font-family: var(--text); font-weight: 600; letter-spacing: -0.01em; border-bottom: 1px solid var(--rule); padding-bottom: 0.3em; }
+  .md h1 { font-size: 1.75rem; margin: 0 0 0.8rem; }
+  .md h2 { font-size: 1.2rem; margin: 1.6rem 0 0.7rem; }
+  .md h3 { font-size: 1rem; font-weight: 600; margin: 1.2rem 0 0.5rem; }
+  .md p { margin: 0 0 0.9rem; }
+  .md code { background: var(--code-bg); border: 1px solid var(--rule); border-radius: 5px; padding: 0.1em 0.35em; font-size: 0.85em; }
+  .md table { border-collapse: collapse; margin: 0 0 1rem; font-size: 0.88rem; }
+  .md th, .md td { border: 1px solid var(--rule); padding: 0.4rem 0.85rem; text-align: left; }
+  .md th { font-weight: 600; background: var(--code-bg); }
+  .md ul.tasks { list-style: none; padding: 0; margin: 0 0 0.9rem; }
+  .md ul.tasks li { display: flex; align-items: center; gap: 0.55rem; padding: 0.12rem 0; }
+  .md .box {
+    width: 15px; height: 15px; border-radius: 4px; border: 1.5px solid var(--graphite); flex: none;
+    display: grid; place-items: center;
+  }
+  .md .box.done { background: var(--accent); border-color: var(--accent); }
+  .md .box.done svg { width: 10px; height: 10px; stroke: var(--accent-ink); fill: none; stroke-width: 2.4; }
+  .md sup .fnref { color: var(--accent); font-size: 0.75em; }
+  .md .fake-link { color: var(--accent); text-decoration: underline; text-underline-offset: 0.18em; }
+  .md .pre {
+    position: relative; background: var(--code-bg); border: 1px solid var(--rule); border-radius: 8px;
+    padding: 0.9rem 1rem; margin: 0 0 1rem; overflow-x: auto;
+  }
+  .md .pre pre { margin: 0; font: 400 0.8rem/1.65 var(--mono); }
+  .md .copy {
+    position: absolute; top: 0.5rem; right: 0.5rem;
+    font: 500 0.72rem/1 var(--text); color: var(--ink);
+    background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 0.35rem 0.6rem;
+  }
+  .tok-cmd { color: var(--tok-key); }
+  .tok-str { color: var(--tok-str); }
+  .tok-flag { color: var(--tok-flag); }
+  .tok-com { color: var(--tok-com); font-style: italic; }
+  .md .footnotes { border-top: 1px solid var(--rule); margin-top: 1.4rem; padding-top: 0.7rem; font-size: 0.8rem; color: var(--graphite); }
+
+  .mock-note {
+    margin: 0.9rem 0 0; font: 400 0.8rem/1.5 var(--mono); color: var(--graphite);
+  }
+
+  /* ------------------------------------------------------------------
+     Sections
+     ------------------------------------------------------------------ */
+  .section { padding-block: clamp(3.5rem, 8vw, 6rem) 0; }
+  .section h2 {
+    margin: 0 0 0.6rem;
+    font: 650 clamp(1.8rem, 3.6vw, 2.6rem)/1.1 var(--display);
+    letter-spacing: -0.025em;
+  }
+  .section h2 .src { top: 0.3em; }
+  .lede { margin: 0 0 2.2rem; max-width: 40rem; color: var(--graphite); }
+  .section h3 {
+    margin: 2.2rem 0 1rem;
+    font: 600 1.15rem/1.3 var(--display);
+  }
+  .section h3 .src { top: 0.15em; font-size: 0.72em; }
+
+  /* Feature lists: each entry is keyed by the syntax or key that triggers it */
+  .keyed {
+    list-style: none; margin: 0; padding: 0;
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 2.5rem;
+  }
+  .keyed li {
+    display: grid; grid-template-columns: 9rem 1fr; gap: 1rem;
+    padding: 1rem 0; border-top: 1px solid var(--rule);
+  }
+  .keyed .k { padding-top: 0.15rem; }
+  .keyed .k code, .keyed .k kbd {
+    display: inline-block; font-size: 0.78rem; line-height: 1.3;
+    padding: 0.25rem 0.45rem; border-radius: 6px;
+    background: var(--accent-soft); color: var(--ink); white-space: nowrap;
+  }
+  .keyed .k kbd { border: 1px solid var(--rule); background: var(--sheet); box-shadow: 0 1px 0 var(--rule); }
+  .keyed strong { display: block; font-weight: 600; }
+  .keyed p { margin: 0.15rem 0 0; color: var(--graphite); font-size: 0.97rem; }
+
+  /* Install steps are a real sequence, so they are numbered */
+  .install { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 3rem; align-items: start; }
+  .steps { list-style: none; counter-reset: step; margin: 0; padding: 0; }
+  .steps li { counter-increment: step; position: relative; padding: 0 0 1.4rem 2.6rem; }
+  .steps li::before {
+    content: counter(step); position: absolute; left: 0; top: 0.05rem;
+    width: 1.7rem; height: 1.7rem; border-radius: 50%;
+    display: grid; place-items: center;
+    font: 600 0.82rem/1 var(--mono); color: var(--accent); background: var(--accent-soft);
+  }
+  .steps strong { display: block; font-weight: 600; }
+  .steps p { margin: 0.2rem 0 0; color: var(--graphite); }
+  .aside {
+    background: var(--sheet); border: 1px solid var(--rule); border-radius: 12px; padding: 1.4rem 1.5rem;
+  }
+  .aside h3 { margin: 0 0 0.7rem; font: 600 1rem/1.3 var(--display); }
+  .aside ul { margin: 0; padding-left: 1.1rem; color: var(--graphite); font-size: 0.95rem; }
+  .aside li + li { margin-top: 0.45rem; }
+  .aside li strong { color: var(--ink); font-weight: 600; }
+
+  /* Security section with the link-warning dialog mock */
+  .trust { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 3rem; align-items: center; }
+  .trust ul { list-style: none; margin: 0; padding: 0; }
+  .trust li { padding: 1rem 0; border-top: 1px solid var(--rule); }
+  .trust li strong { display: block; font-weight: 600; }
+  .trust li p { margin: 0.2rem 0 0; color: var(--graphite); }
+  .dialog {
+    background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px;
+    box-shadow: var(--shadow); max-width: 27rem; margin-left: auto; overflow: hidden;
+  }
+  .dialog .d-title { font-size: 0.78rem; color: var(--graphite); padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--rule); }
+  .dialog .d-body { padding: 1.1rem 1.2rem 1.2rem; }
+  .dialog .d-body strong { display: block; font: 600 1.05rem/1.3 var(--display); }
+  .dialog .d-body p { margin: 0.4rem 0 0; font-size: 0.88rem; color: var(--graphite); }
+  .dialog .url {
+    font: 400 0.8rem/1.5 var(--mono); background: var(--code-bg); border: 1px solid var(--rule);
+    border-radius: 6px; padding: 0.55rem 0.7rem; word-break: break-all; color: var(--ink);
+  }
+  .dialog .d-actions { display: flex; justify-content: flex-end; gap: 0.5rem; padding: 0.8rem 1.2rem; background: var(--code-bg); border-top: 1px solid var(--rule); }
+  .dialog .d-actions span {
+    font-size: 0.82rem; padding: 0.45rem 0.9rem; border-radius: 6px; border: 1px solid var(--rule); background: var(--sheet);
+  }
+  .dialog .d-actions span.default { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .dialog .cap { display: block; margin: 0.9rem 0 0.15rem; font-size: 0.68rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--graphite); }
+  .dialog .host { display: block; font: 700 1.25rem/1.25 var(--display); color: var(--accent); }
+  .dialog-note { max-width: 27rem; margin: 0.7rem 0 0 auto; font: 400 0.78rem/1.5 var(--mono); color: var(--graphite); }
+
+  /* ------------------------------------------------------------------
+     Footer
+     ------------------------------------------------------------------ */
+  .footer { margin-top: clamp(4rem, 9vw, 7rem); border-top: 1px solid var(--rule); padding: 2rem 0 3rem; font-size: 0.9rem; color: var(--graphite); }
+  .footer .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem 2rem; }
+  .footer .brand { font-size: 1rem; }
+  .footer .brand svg { width: 24px; height: 24px; }
+  .footer nav { display: flex; flex-wrap: wrap; gap: 1.2rem; margin-left: auto; }
+  .footer nav a { color: var(--graphite); }
+  .footer nav a:hover { color: var(--ink); }
+  .footer .legal { flex-basis: 100%; margin: 0; }
+
+  /* ------------------------------------------------------------------
+     Responsive
+     ------------------------------------------------------------------ */
+  @media (max-width: 960px) {
+    .w-body { grid-template-columns: minmax(0, 1fr); }
+    .w-outline { display: none; }
+    .keyed { grid-template-columns: 1fr; }
+    .install, .trust { grid-template-columns: 1fr; gap: 2rem; }
+    .dialog, .dialog-note { margin-left: 0; }
+  }
+  @media (max-width: 760px) {
+    :root { --gutter: 0rem; }
+    .doc::before { display: none; }
+    .src { position: static; display: block; font-size: 0.8rem; margin-bottom: 0.35rem; }
+    .hero h1 .src, .section h2 .src, .section h3 .src { font-size: 0.8rem; top: 0; }
+    .topnav { display: none; }
+    .theme-switch { margin-left: auto; }
+    .w-tab.hide-sm { display: none; }
+    .w-title .caption i { width: 34px; }
+    .keyed li { grid-template-columns: 1fr; gap: 0.4rem; }
+    .md table { display: block; overflow-x: auto; }
+  }
+  @media (max-width: 420px) {
+    .wrap { padding: 0 1.1rem; }
+    .theme-switch button { padding: 0.42rem 0.5rem; }
+    .btn { width: 100%; justify-content: center; }
+    .w-title .t-full { display: none; }
+  }
+  @media (max-width: 359px) {
+    .topbar .brand span { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<!-- App mark, reused below via <use> -->
+<svg class="sprite" width="0" height="0" aria-hidden="true" focusable="false">
+  <defs>
+    <linearGradient id="mark-tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3B82F6"/>
+      <stop offset="1" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <symbol id="mark" viewBox="0 0 256 256">
+      <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#mark-tile)"/>
+      <path d="M82 40H146L194 88V200Q194 216 178 216H82Q66 216 66 200V56Q66 40 82 40Z" fill="#FFFFFF"/>
+      <path d="M146 40V76Q146 88 158 88H194Z" fill="#BFDBFE"/>
+      <g stroke="#2563EB" stroke-width="13" stroke-linecap="round" fill="none">
+        <path d="M106 66L98 126M131 66L123 126"/>
+        <path d="M84 84H144M82 108H142"/>
+      </g>
+      <g stroke="#C3D3F0" stroke-width="11" stroke-linecap="round" fill="none">
+        <path d="M86 152H174M86 174H166M86 196H136"/>
+      </g>
+    </symbol>
+  </defs>
+</svg>
+
+<header class="topbar">
+  <div class="wrap">
+    <a class="brand" href="./" aria-label="JustMdViewer home">
+      <svg viewBox="0 0 256 256" aria-hidden="true"><use href="#mark"/></svg>
+      <span>Just<b>Md</b>Viewer</span>
+    </a>
+    <nav class="topnav" aria-label="Sections">
+      <a href="#features">Features</a>
+      <a href="#install">Install</a>
+      <a href="#privacy">Privacy</a>
+      <a href="https://github.com/khaled-Umar/JustMdViewer">GitHub</a>
+    </nav>
+    <div class="theme-switch" role="group" aria-label="Page theme">
+      <button type="button" data-theme-choice="light" aria-pressed="false">Light</button>
+      <button type="button" data-theme-choice="dark" aria-pressed="false">Dark</button>
+      <button type="button" data-theme-choice="system" aria-pressed="true">System</button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+  <div class="wrap">
+
+    <section class="hero doc" aria-labelledby="hero-title">
+      <h1 id="hero-title"><span class="src" aria-hidden="true">#</span>A Markdown viewer that <em>only views.</em></h1>
+      <p class="pitch">JustMdViewer opens <code>.md</code> files in tabs, in a clean, GitHub-style reading view on Windows. No editor, no account, no telemetry. The installer is 2.8&nbsp;MB.</p>
+      <div class="actions">
+        <a class="btn btn-primary" href="https://github.com/khaled-Umar/JustMdViewer/releases/latest">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg>
+          Download for Windows
+        </a>
+        <a class="btn btn-quiet" href="https://github.com/khaled-Umar/JustMdViewer">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.56 9.56 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"/></svg>
+          View on GitHub
+        </a>
+      </div>
+      <p class="meta"><span>v1.0.0</span><span>Windows 10 and 11</span><span>2.8 MB installer</span><span>MIT licensed</span></p>
+    </section>
+
+    <!-- Illustration of the app window. Not a screenshot. -->
+    <figure class="showcase" aria-labelledby="mock-caption">
+      <div class="window" role="img" aria-label="Illustration of the JustMdViewer window: three file tabs, an outline tree of the headings, and a rendered Markdown checklist with a table, a task list and a code block with a Copy button.">
+        <div class="w-title">
+          <svg viewBox="0 0 256 256" aria-hidden="true"><use href="#mark"/></svg>
+          <span><span class="t-full">release-checklist.md — </span>JustMdViewer</span>
+          <span class="caption" aria-hidden="true">
+            <i><svg viewBox="0 0 10 10"><path d="M0 5.5h10"/></svg></i>
+            <i><svg viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9"/></svg></i>
+            <i><svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0 0 10"/></svg></i>
+          </span>
+        </div>
+        <div class="w-bar" aria-hidden="true">
+          <span class="ib on" title="Outline"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h13"/></svg></span>
+          <span class="w-tabs">
+            <span class="w-tab on"><span>release-checklist.md</span><i>×</i></span>
+            <span class="w-tab"><span>README.md</span><i>×</i></span>
+            <span class="w-tab hide-sm"><span>CHANGELOG.md</span><i>×</i></span>
+          </span>
+          <span class="ib" title="Open files"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>
+          <span class="ib push" title="Theme"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></span>
+        </div>
+        <div class="w-body">
+          <div class="w-outline">
+            <p>On this page</p>
+            <ul>
+              <li class="open"><span>Release checklist</span>
+                <ul>
+                  <li class="on"><span>Status</span></li>
+                  <li><span>Tasks</span></li>
+                  <li class="open"><span>Build</span>
+                    <ul><li><span>Package</span></li></ul>
+                  </li>
+                </ul>
+              </li>
+            </ul>
+          </div>
+          <article class="md" aria-hidden="true">
+            <h1>Release checklist</h1>
+            <p>Everything that has to happen before <strong>v1.1</strong> ships. Edit this file in any editor; the viewer reloads it every time you save.</p>
+            <h2>Status</h2>
+            <table>
+              <thead><tr><th>Area</th><th>Owner</th><th>State</th></tr></thead>
+              <tbody>
+                <tr><td>Build</td><td>Sam</td><td>Done ✅</td></tr>
+                <tr><td>Docs</td><td>Priya</td><td>In review 👀</td></tr>
+                <tr><td>Installer</td><td>Lee</td><td>Waiting on signing</td></tr>
+              </tbody>
+            </table>
+            <h2>Tasks</h2>
+            <ul class="tasks">
+              <li><span class="box done"><svg viewBox="0 0 10 10"><path d="M1.5 5.2 4 7.6l4.5-5"/></svg></span>Tag the release branch</li>
+              <li><span class="box done"><svg viewBox="0 0 10 10"><path d="M1.5 5.2 4 7.6l4.5-5"/></svg></span>Run the full test suite</li>
+              <li><span class="box"></span>Sign off the changelog<sup><span class="fnref">1</span></sup></li>
+            </ul>
+            <h2>Build</h2>
+            <div class="pre">
+              <span class="copy">Copy</span>
+<pre><span class="tok-com"># from the repository root</span>
+<span class="tok-cmd">dotnet</span> build <span class="tok-str">JustMdViewer.sln</span> <span class="tok-flag">-c</span> Release
+<span class="tok-cmd">dotnet</span> test</pre>
+            </div>
+            <h3>Package</h3>
+            <p>Run <code>./build.ps1</code> to publish the app and build the installer. Other docs, like <span class="fake-link">README.md</span>, open in a new tab.</p>
+            <div class="footnotes"><span>1.</span> The changelog lives in <code>CHANGELOG.md</code>.</div>
+          </article>
+        </div>
+      </div>
+      <figcaption class="mock-note" id="mock-caption">Illustration, not a screenshot: the app window redrawn in HTML and CSS.</figcaption>
+    </figure>
+
+    <section class="section doc" id="features" aria-labelledby="features-title">
+      <h2 id="features-title"><span class="src" aria-hidden="true">##</span>What it does</h2>
+      <p class="lede">It shows Markdown the way GitHub does and stays out of the way. There is nothing to configure before the first file opens.</p>
+
+      <h3><span class="src" aria-hidden="true">###</span>Renders what you write</h3>
+      <ul class="keyed">
+        <li><span class="k"><code>| a | b |</code></span><div><strong>Tables</strong><p>Aligned columns, header rows and borders, as on GitHub.</p></div></li>
+        <li><span class="k"><code>- [x]</code></span><div><strong>Task lists</strong><p>Checked and open items render as checkboxes.</p></div></li>
+        <li><span class="k"><code>```cs</code></span><div><strong>Highlighted code</strong><p>Syntax colouring, plus a Copy button on every code block.</p></div></li>
+        <li><span class="k"><code>[^1]</code></span><div><strong>Footnotes</strong><p>Numbered references with the notes collected at the end.</p></div></li>
+        <li><span class="k"><code>:tada:</code></span><div><strong>Emoji</strong><p>Shortcodes turn into emoji.</p></div></li>
+        <li><span class="k"><code>![](./img.png)</code></span><div><strong>Local images</strong><p>Relative paths resolve next to the file you opened.</p></div></li>
+      </ul>
+
+      <h3><span class="src" aria-hidden="true">###</span>Made for reading</h3>
+      <ul class="keyed">
+        <li><span class="k"><kbd>Ctrl+Tab</kbd></span><div><strong>Tabs</strong><p>Every file opens in its own tab in one window. <kbd>Ctrl+1</kbd>…<kbd>9</kbd> jumps to a tab, <kbd>Ctrl+W</kbd> closes one.</p></div></li>
+        <li><span class="k"><code>Session</code></span><div><strong>Back where you left off</strong><p>Your tabs reopen the next time you start the app, each with its scroll position and outline as you left them.</p></div></li>
+        <li><span class="k"><code>Open with</code></span><div><strong>One window</strong><p>Double-click a file, use the right-click menu, or drop files on the window. If the app is already open, the file joins it as a new tab.</p></div></li>
+        <li><span class="k"><kbd>Ctrl+Shift+O</kbd></span><div><strong>Outline</strong><p>A collapsible tree of the headings. Hide it and bring it back without losing which branches were open.</p></div></li>
+        <li><span class="k"><code>[text](url)</code></span><div><strong>Links you can check</strong><p>Web links show the full address in a warning first, then open in your browser. Links to other Markdown files open in a new tab.</p></div></li>
+        <li><span class="k"><kbd>F5</kbd></span><div><strong>Auto-reload</strong><p>Save the file in your editor and the view updates. <kbd>F5</kbd> reloads by hand.</p></div></li>
+        <li><span class="k"><kbd>Ctrl+T</kbd></span><div><strong>Themes</strong><p>Switches between System, Light and Dark. The same toggle sits in the header.</p></div></li>
+        <li><span class="k"><kbd>Ctrl+F</kbd></span><div><strong>Find</strong><p>Search the text of the document.</p></div></li>
+        <li><span class="k"><kbd>Ctrl&nbsp;+/−/0</kbd></span><div><strong>Zoom</strong><p>Make the text bigger or smaller, or reset it.</p></div></li>
+        <li><span class="k"><kbd>Ctrl+P</kbd></span><div><strong>Print</strong><p>Print the document as it is rendered, or save it as PDF.</p></div></li>
+      </ul>
+    </section>
+
+    <section class="section doc" id="install" aria-labelledby="install-title">
+      <h2 id="install-title"><span class="src" aria-hidden="true">##</span>Install</h2>
+      <p class="lede">One 2.8&nbsp;MB installer. Install it for yourself, or for everyone on the PC.</p>
+      <div class="install">
+        <ol class="steps">
+          <li><strong>Download the installer</strong><p>Get <code>JustMdViewer-Setup-1.0.0.exe</code> from the <a href="https://github.com/khaled-Umar/JustMdViewer/releases/latest">latest release</a>.</p></li>
+          <li><strong>Run it</strong><p>The installer isn't code-signed yet, so Windows SmartScreen may warn you. Choose <em>More info</em>, then <em>Run anyway</em>.</p></li>
+          <li><strong>Choose who it's for</strong><p>It installs just for you by default. You can choose to install for all users instead.</p></li>
+          <li><strong>Pick the options</strong><p><em>Associate Markdown files with JustMdViewer</em> and <em>Add 'Open with JustMdViewer' to the right-click menu</em> are ticked; a desktop shortcut is not. On Windows&nbsp;11 the right-click entry is under <em>Show more options</em>.</p></li>
+          <li><strong>Confirm the default app once</strong><p>If another app already opens <code>.md</code> files, Windows keeps it and may ask once which app to use. Pick JustMdViewer and choose <em>Always</em>, or change it in Settings&nbsp;›&nbsp;Apps&nbsp;›&nbsp;Default apps.</p></li>
+        </ol>
+        <aside class="aside" aria-labelledby="req-title">
+          <h3 id="req-title">Requirements</h3>
+          <ul>
+            <li><strong>Windows 10 or 11</strong>, 64-bit. The app is an x64 build; on Arm PCs it runs through Windows' x64 emulation.</li>
+            <li><strong>.NET 10 Desktop Runtime (x64)</strong>, also on Arm PCs. If it's missing, the installer tells you and offers Microsoft's download page.</li>
+            <li><strong>WebView2 Runtime.</strong> Already on Windows 11 and most Windows 10 PCs. The installer warns you if it's missing.</li>
+          </ul>
+        </aside>
+      </div>
+    </section>
+
+    <section class="section doc" id="privacy" aria-labelledby="privacy-title">
+      <h2 id="privacy-title"><span class="src" aria-hidden="true">##</span>Security and privacy</h2>
+      <p class="lede">A Markdown file can come from anywhere, so JustMdViewer treats every document as untrusted.</p>
+      <div class="trust">
+        <ul>
+          <li><strong>Documents can't run code</strong><p>Embedded HTML is sanitized, and a strict Content Security Policy blocks scripts. Nothing in a file executes.</p></li>
+          <li><strong>No link opens silently</strong><p>You see the website and the full address before your browser opens it, with a warning for look-alike international names and for <code>user@host</code> tricks.</p></li>
+          <li><strong>No telemetry, no accounts</strong><p>The app sends nothing anywhere. The only network requests come from images a document links to by URL.</p></li>
+        </ul>
+        <div>
+          <div class="dialog" role="img" aria-label="Illustration of the external link warning: it names the website, shows the full address, and offers Open in browser, Copy link and Cancel.">
+            <div class="d-title">Open external link</div>
+            <div class="d-body">
+              <strong>Open this link in your browser?</strong>
+              <p>This link leads outside JustMdViewer. Check where it goes before you continue.</p>
+              <span class="cap">Website</span>
+              <span class="host">example.com</span>
+              <span class="cap">Full address</span>
+              <div class="url">https://example.com/docs/getting-started?ref=readme</div>
+            </div>
+            <div class="d-actions"><span>Open in browser</span><span>Copy link</span><span class="default">Cancel</span></div>
+          </div>
+          <p class="dialog-note">Illustration of the link warning.</p>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</main>
+
+<footer class="footer">
+  <div class="wrap">
+    <a class="brand" href="./" aria-label="JustMdViewer home">
+      <svg viewBox="0 0 256 256" aria-hidden="true"><use href="#mark"/></svg>
+      <span>Just<b>Md</b>Viewer</span>
+    </a>
+    <nav aria-label="Project links">
+      <a href="https://github.com/khaled-Umar/JustMdViewer/releases/latest">Releases</a>
+      <a href="https://github.com/khaled-Umar/JustMdViewer">Source</a>
+      <a href="https://github.com/khaled-Umar/JustMdViewer/issues">Report a bug</a>
+      <a href="https://github.com/khaled-Umar/JustMdViewer/blob/main/LICENSE">MIT License</a>
+    </nav>
+    <p class="legal">Free and open source under the MIT License. © 2026 Khalid Omar Hanafy. This page has no trackers and loads nothing from other sites.</p>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var root = document.documentElement;
+    var buttons = document.querySelectorAll('[data-theme-choice]');
+    function current() {
+      try { return localStorage.getItem('jmv-theme') || 'system'; } catch (e) { return 'system'; }
+    }
+    function apply(choice) {
+      if (choice === 'light' || choice === 'dark') root.setAttribute('data-theme', choice);
+      else root.removeAttribute('data-theme');
+      try {
+        if (choice === 'system') localStorage.removeItem('jmv-theme');
+        else localStorage.setItem('jmv-theme', choice);
+      } catch (e) {}
+      for (var i = 0; i < buttons.length; i++) {
+        buttons[i].setAttribute('aria-pressed', String(buttons[i].getAttribute('data-theme-choice') === choice));
+      }
+    }
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].addEventListener('click', function () { apply(this.getAttribute('data-theme-choice')); });
+    }
+    apply(current());
+  })();
+</script>
+</body>
+</html>
